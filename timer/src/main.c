@@ -27,7 +27,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include <stdlib.h>
+#include "pwm_out.h"
 /** @addtogroup STM32F0-Discovery_Demo
   * @{
   */
@@ -36,8 +36,20 @@
 /* Private define ------------------------------------------------------------*/
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
-static __IO uint32_t TimingDelay;
-uint8_t BlinkSpeed = 0;
+static __IO uint32_t TimingDelay = 0;
+static __IO uint32_t OnDelay = 0;
+
+#define ON_DELAY     7200000//Two hours in milliseconds
+int pwmIndex = 0;
+int pwmList[] = {
+    100,
+    50,
+    20,
+    5,
+    0,
+    -1
+};
+static int flag = 0xFF;
 
 /* Private function prototypes -----------------------------------------------*/
 /* Private functions ---------------------------------------------------------*/
@@ -62,57 +74,100 @@ int main(void)
   RCC_GetClocksFreq(&RCC_Clocks);
   SysTick_Config(RCC_Clocks.HCLK_Frequency / 1000);
    
-  /* Initiate Blink Speed variable */ 
-  BlinkSpeed = 2;
-  
+  {
+    GPIO_InitTypeDef  GPIO_InitStructure;
+  /* Configure the GPIO_LED pin */
+   GPIO_InitStructure.GPIO_Pin = GPIO_Pin_9;
+   GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
+   GPIO_InitStructure.GPIO_OType = GPIO_OType_OD;
+   GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
+   GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+   GPIO_Init(GPIOA, &GPIO_InitStructure);
+   GPIOA->BRR = GPIO_Pin_9;
+
+
+//  GPIO_InitStructure.GPIO_Pin = GPIO_Pin_8;
+//  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
+//  GPIO_InitStructure.GPIO_OType = GPIO_OType_OD;
+//  GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
+//  GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+//  GPIO_Init(GPIOA, &GPIO_InitStructure);
+//  GPIOA->BRR = GPIO_Pin_8;
+  }
+
+
+  PWM_Init();
+  PWM_SetDutyCycle(pwmList[pwmIndex]);
+
   while(1)
   {  
+    static uint8_t buttonPress = 0;
+
     /* Check if the user button is pressed */
-    if(STM_EVAL_PBGetState(BUTTON_USER)== SET)
+    if(STM_EVAL_PBGetState(BUTTON_USER) == SET)
     {
+      buttonPress = (buttonPress << 1 ) | 0x01;
+
+      if( !flag && (buttonPress > 0x01))
+      {
+
+        pwmIndex++;
+        if(pwmList[pwmIndex] < 0)
+          pwmIndex = 0;
+
+        PWM_SetDutyCycle(pwmList[pwmIndex]);
+
+        Delay(1000);
+      }
+
+
       /* BlinkSpeed: 1 -> 2 -> 0, then re-cycle */
       /* Turn on LD4 Blue LED during 1s each time User button is pressed */
-      STM_EVAL_LEDOn(LED3);
-      
-      /* wait for 1s */
-      Delay(1000);
-      
-      /* Turn off LD4 Blue LED after 1s each time User button is pressed */
-      STM_EVAL_LEDOff(LED3);
-      
-      /* Increment the blink speed counter */
-      BlinkSpeed++;
-      
-      /* Default value for blink speed counter */
-      if(BlinkSpeed == 3)
-      {  
-        BlinkSpeed = 0;
-      }
-    }
-    
-    /* Test on blink speed */
-    if(BlinkSpeed == 2)
-    {
-      /* LED3 toggles each 100 ms */
-      STM_EVAL_LEDToggle(LED4);
-      
-      /* maintain LED3 status for 100ms */
-      Delay(100);
-    }
-    else if(BlinkSpeed == 1)
-    {
-      /* LED3 toggles each 200 ms */
-      STM_EVAL_LEDToggle(LED4);
-      
-      /* maintain LED3 status for 200ms */
-      Delay(200);
+      STM_EVAL_LEDToggle(LED3);
+
     }
     else
-    {  
-      /* LED3 Off */
-      STM_EVAL_LEDOff(LED4);
+    {
+      buttonPress = 0;
     }
+
+
+    if(buttonPress == 0x01)
+    {
+      if(flag)
+      {
+        OnDelay = ON_DELAY;
+        STM_EVAL_LEDOn(LED4);
+        GPIOA->BSRR = GPIO_Pin_9;// | GPIO_Pin_8;
+        PWM_Enable();
+      }
+      else
+      {
+        STM_EVAL_LEDOff(LED3);
+        STM_EVAL_LEDOff(LED4);
+        GPIOA->BRR = GPIO_Pin_9;// | GPIO_Pin_8;
+        PWM_Disable();
+      }
+
+      flag ^= 0xFF;
+    }
+
+    Delay(500);
+
+    //after the on delay, switch off everything
+    if(!flag && !OnDelay)
+    {
+      flag = 0xFF;
+      STM_EVAL_LEDOff(LED4);
+      STM_EVAL_LEDOff(LED3);
+      GPIOA->BRR = GPIO_Pin_9;// | GPIO_Pin_8;
+      PWM_Disable();
+    }
+
   }
+
+
+  Delay(100);
 }
 
 /**
@@ -137,6 +192,12 @@ void TimingDelay_Decrement(void)
   if (TimingDelay != 0x00)
   { 
     TimingDelay--;
+  }
+
+
+  if (OnDelay != 0x00)
+  {
+    OnDelay--;
   }
 }
 
